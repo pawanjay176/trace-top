@@ -3,41 +3,41 @@ mod keymap;
 mod screens;
 mod terminal;
 
-use std::{error::Error, time::Duration};
+use std::{
+    error::Error,
+    time::{Duration, Instant},
+};
 
 use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind};
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
-use crate::core::store::{Store, StoreEvent};
+use crate::core::store::Store;
 
 use self::{
-    app::{Action, AppState},
+    app::{Action, AppState, Screen},
     terminal::TerminalSession,
 };
 
-pub fn run(
-    store: Arc<Store>,
-    store_rx: mpsc::Receiver<Vec<StoreEvent>>,
-) -> Result<(), Box<dyn Error>> {
+const TRACE_LIST_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
+
+pub fn run(store: Arc<Store>) -> Result<(), Box<dyn Error>> {
     let mut terminal = TerminalSession::enter()?;
-    let result = run_app(&mut terminal, store, store_rx);
+    let result = run_app(&mut terminal, store);
     terminal.exit()?;
     result
 }
 
-fn run_app(
-    terminal: &mut TerminalSession,
-    store: Arc<Store>,
-    mut store_rx: mpsc::Receiver<Vec<StoreEvent>>,
-) -> Result<(), Box<dyn Error>> {
+fn run_app(terminal: &mut TerminalSession, store: Arc<Store>) -> Result<(), Box<dyn Error>> {
     let mut app = AppState::new();
+    app.update(Action::RefreshTraceList, &store);
+    let mut last_trace_list_refresh = Instant::now();
 
     loop {
-        while let Ok(events) = store_rx.try_recv() {
-            for event in events {
-                app.update(Action::StoreChanged(event), &store);
-            }
+        if app.screen == Screen::TraceList
+            && last_trace_list_refresh.elapsed() >= TRACE_LIST_REFRESH_INTERVAL
+        {
+            app.update(Action::RefreshTraceList, &store);
+            last_trace_list_refresh = Instant::now();
         }
 
         terminal.draw(|frame| screens::render(frame, &mut app))?;

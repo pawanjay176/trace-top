@@ -42,8 +42,6 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
                 .as_deref()
                 .unwrap_or("<none>"),
         ),
-        Span::raw("  version="),
-        Span::raw(app.aggregate.version.to_string()),
     ]))
     .block(Block::default().borders(Borders::ALL));
     frame.render_widget(header, layout[0]);
@@ -100,6 +98,8 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
     let footer = Paragraph::new(Line::from(vec![
         Span::styled("b/Esc", Style::default().fg(Color::Yellow)),
         Span::raw(" back  "),
+        Span::styled("r", Style::default().fg(Color::Yellow)),
+        Span::raw(" refresh  "),
         Span::styled("q", Style::default().fg(Color::Yellow)),
         Span::raw(" quit"),
     ]))
@@ -108,11 +108,5 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
 }
 
 fn format_duration(duration_nano: u64) -> String {
-    if duration_nano >= 1_000_000 {
-        format!("{:.2}ms", duration_nano as f64 / 1_000_000.0)
-    } else if duration_nano >= 1_000 {
-        format!("{:.2}us", duration_nano as f64 / 1_000.0)
-    } else {
-        format!("{duration_nano}ns")
-    }
+    format!("{:.2}ms", duration_nano as f64 / 1_000_000.0)
 }

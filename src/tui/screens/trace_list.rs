@@ -5,8 +5,11 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState},
 };
+use std::time::Duration;
 
 use crate::tui::app::AppState;
+
+use jiff::{Timestamp, tz::TimeZone};
 
 pub fn render(frame: &mut Frame, app: &mut AppState) {
     let area = frame.area();
@@ -51,7 +54,7 @@ fn render_header(frame: &mut Frame, app: &AppState, area: ratatui::layout::Rect)
 fn render_table(frame: &mut Frame, app: &mut AppState, area: ratatui::layout::Rect) {
     let rows = if app.trace_list.rows.is_empty() {
         vec![Row::new(vec![Cell::from(
-            "No traces loaded. Waiting for a store change notification.",
+            "No spans received yet. Export OTLP/gRPC traces to 127.0.0.1:4317.",
         )])]
     } else {
         app.trace_list
@@ -66,10 +69,9 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: ratatui::layout::Re
                             .clone()
                             .unwrap_or_else(|| "<unknown>".into()),
                     ),
-                    Cell::from(trace.start_unix_nano.to_string()),
-                    Cell::from(format_duration(trace.duration_nano)),
+                    Cell::from(format_start_time(trace.start_unix_nano)),
+                    Cell::from(format_duration_ms(trace.duration)),
                     Cell::from(trace.span_count.to_string()),
-                    Cell::from(trace.error_count.to_string()),
                 ])
             })
             .collect()
@@ -80,22 +82,14 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: ratatui::layout::Re
         [
             Constraint::Length(18),
             Constraint::Percentage(35),
-            Constraint::Length(18),
+            Constraint::Length(10),
             Constraint::Length(12),
-            Constraint::Length(8),
             Constraint::Length(8),
         ],
     )
     .header(
-        Row::new([
-            "trace id",
-            "root span",
-            "start ns",
-            "duration",
-            "spans",
-            "errors",
-        ])
-        .style(Style::default().fg(Color::DarkGray)),
+        Row::new(["trace id", "root span", "start", "duration", "spans"])
+            .style(Style::default().fg(Color::DarkGray)),
     )
     .block(
         Block::default()
@@ -128,7 +122,7 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: ratatui::layout::Rect)
             Span::styled("a", Style::default().fg(Color::Yellow)),
             Span::raw(" aggregates  "),
             Span::styled("r", Style::default().fg(Color::Yellow)),
-            Span::raw(" reset search  "),
+            Span::raw(" refresh  "),
             Span::styled("q", Style::default().fg(Color::Yellow)),
             Span::raw(" quit"),
         ]),
@@ -136,10 +130,6 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: ratatui::layout::Rect)
             Span::styled("selected trace_id:", Style::default().fg(Color::DarkGray)),
             Span::raw(" "),
             Span::raw(app.selected_trace_id_text()),
-            Span::raw("  version="),
-            Span::raw(app.store_version_seen.to_string()),
-            Span::raw("  snapshot_version="),
-            Span::raw(app.trace_list.version.to_string()),
             Span::raw("  traces="),
             Span::raw(app.trace_list.total_traces.to_string()),
             Span::raw("  spans="),
@@ -159,14 +149,21 @@ fn short_trace_id(trace_id: &str) -> String {
     trace_id.chars().take(16).collect()
 }
 
-fn format_duration(duration_nano: u64) -> String {
-    if duration_nano >= 1_000_000_000 {
-        format!("{:.2}s", duration_nano as f64 / 1_000_000_000.0)
-    } else if duration_nano >= 1_000_000 {
-        format!("{:.2}ms", duration_nano as f64 / 1_000_000.0)
-    } else if duration_nano >= 1_000 {
-        format!("{:.2}us", duration_nano as f64 / 1_000.0)
-    } else {
-        format!("{duration_nano}ns")
+fn format_start_time(unix_nano: u64) -> String {
+    if unix_nano == 0 {
+        return "-".into();
     }
+
+    Timestamp::from_nanosecond(unix_nano as i128)
+        .map(|timestamp| {
+            timestamp
+                .to_zoned(TimeZone::system())
+                .strftime("%H:%M:%S")
+                .to_string()
+        })
+        .unwrap_or_else(|_| "-".into())
+}
+
+fn format_duration_ms(duration: Duration) -> String {
+    format!("{:.2}ms", duration.as_nanos() as f64 / 1_000_000.0)
 }

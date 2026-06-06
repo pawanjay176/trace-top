@@ -12,7 +12,7 @@ pub fn map_key(key: KeyEvent, app: &AppState) -> Action {
         },
         KeyCode::Char('a') => Action::ShowAggregates,
         KeyCode::Char('b') => Action::ShowTraceList,
-        KeyCode::Char('r') => Action::ClearTraceSearch,
+        KeyCode::Char('r') => Action::RefreshCurrentScreen,
         KeyCode::Down | KeyCode::Char('j') => match app.screen {
             Screen::TraceList => Action::MoveSelectionDown,
             Screen::TraceDetail => Action::MoveSpanDown,

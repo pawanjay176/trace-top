@@ -1,6 +1,6 @@
 use crate::core::{
     store::{
-        AggregateQuery, AggregateSnapshot, Store, StoreEvent, TraceDetailSnapshot, TraceListQuery,
+        AggregateQuery, AggregateSnapshot, Store, TraceDetailSnapshot, TraceListQuery,
         TraceListSnapshot,
     },
     types::TraceId,
@@ -13,7 +13,8 @@ pub enum Action {
     Noop,
     Quit,
     Resize(u16, u16),
-    StoreChanged(StoreEvent),
+    RefreshCurrentScreen,
+    RefreshTraceList,
     ShowTraceList,
     ShowTraceDetail,
     ShowAggregates,
@@ -21,7 +22,6 @@ pub enum Action {
     MoveSelectionUp,
     MoveSpanDown,
     MoveSpanUp,
-    ClearTraceSearch,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -36,7 +36,6 @@ pub struct AppState {
     pub screen: Screen,
     pub should_quit: bool,
     pub terminal_size: Option<(u16, u16)>,
-    pub store_version_seen: u64,
     pub trace_list_query: TraceListQuery,
     pub trace_list: TraceListSnapshot,
     pub selected_trace_index: usize,
@@ -53,7 +52,6 @@ impl AppState {
             screen: Screen::TraceList,
             should_quit: false,
             terminal_size: None,
-            store_version_seen: 0,
             trace_list_query: TraceListQuery {
                 limit: DEFAULT_TRACE_LIST_LIMIT,
                 search: None,
@@ -73,10 +71,8 @@ impl AppState {
             Action::Noop => {}
             Action::Quit => self.should_quit = true,
             Action::Resize(width, height) => self.terminal_size = Some((width, height)),
-            Action::StoreChanged(StoreEvent::Updated { store_version }) => {
-                self.store_version_seen = store_version;
-                self.refresh_current_screen(store);
-            }
+            Action::RefreshCurrentScreen => self.refresh_current_screen(store),
+            Action::RefreshTraceList => self.refresh_trace_list(store),
             Action::ShowTraceList => {
                 self.screen = Screen::TraceList;
                 self.refresh_trace_list(store);
@@ -90,11 +86,6 @@ impl AppState {
             Action::MoveSelectionUp => self.move_trace_selection_up(store),
             Action::MoveSpanDown => self.move_span_selection_down(store),
             Action::MoveSpanUp => self.move_span_selection_up(store),
-            Action::ClearTraceSearch => {
-                self.trace_list_query.search = None;
-                self.selected_trace_index = 0;
-                self.refresh_trace_list(store);
-            }
         }
     }
 

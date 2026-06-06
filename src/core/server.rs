@@ -1,8 +1,7 @@
-use std::{error::Error, net::SocketAddr};
-use tokio::sync::{mpsc, oneshot};
+use std::{error::Error, net::SocketAddr, sync::Arc};
 use tonic::{Request, Response, Status as GrpcStatus, transport::Server};
 
-use crate::core::{store::StoreReceiver, types::NormalizedSpan};
+use crate::core::{store::Store, types::NormalizedSpan};
 
 use opentelemetry_proto::tonic::collector::trace::v1::{
     ExportTraceServiceRequest, ExportTraceServiceResponse,
@@ -11,7 +10,7 @@ use opentelemetry_proto::tonic::collector::trace::v1::{
 
 #[derive(Debug, Clone)]
 pub struct OtlpTraceReceiver {
-    ingest_tx: mpsc::Sender<StoreReceiver>,
+    store: Arc<Store>,
 }
 
 #[tonic::async_trait]
@@ -30,10 +29,7 @@ impl TraceService for OtlpTraceReceiver {
                 }
             }
         }
-        self.ingest_tx
-            .send(StoreReceiver::ReceivedSpans(spans))
-            .await
-            .map_err(|err| GrpcStatus::internal(format!("failed to ingest spans: {err}")))?;
+        self.store.insert_spans(spans);
 
         Ok(Response::new(ExportTraceServiceResponse {
             partial_success: None,
@@ -41,19 +37,13 @@ impl TraceService for OtlpTraceReceiver {
     }
 }
 
-pub async fn serve(
-    addr: &str,
-    ingest_tx: mpsc::Sender<StoreReceiver>,
-    shutdown_rx: oneshot::Receiver<()>,
-) -> Result<(), Box<dyn Error>> {
+pub async fn serve(addr: &str, store: Arc<Store>) -> Result<(), Box<dyn Error>> {
     let addr: SocketAddr = addr.parse()?;
-    let receiver = OtlpTraceReceiver { ingest_tx };
+    let receiver = OtlpTraceReceiver { store };
 
     Server::builder()
         .add_service(TraceServiceServer::new(receiver))
-        .serve_with_shutdown(addr, async {
-            let _ = shutdown_rx.await;
-        })
+        .serve(addr)
         .await?;
 
     Ok(())
