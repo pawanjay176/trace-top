@@ -29,9 +29,9 @@ pub fn map_key(key: KeyEvent, app: &AppState) -> Action {
         }
         KeyCode::Enter => match app.screen {
             Screen::TraceList => Action::ShowTraceDetail,
+            Screen::TraceDetail => Action::ToggleSpanAttributes,
             Screen::Aggregates => Action::ShowAggregateSpans,
             Screen::AggregateSpans => Action::OpenAggregateSpanTrace,
-            _ => Action::Noop,
         },
         KeyCode::Char('a') => Action::ShowAggregates,
         KeyCode::Char('/') => Action::StartSearch,

@@ -158,8 +158,4 @@ impl Trace {
     pub fn spans(&self) -> impl Iterator<Item = &NormalizedSpan> {
         self.spans_by_id.values()
     }
-
-    pub fn span(&self, span_id: &SpanId) -> Option<&NormalizedSpan> {
-        self.spans_by_id.get(span_id)
-    }
 }

@@ -40,7 +40,6 @@ pub struct TraceSummary {
 #[derive(Clone, Debug)]
 pub struct TraceDetailSnapshot {
     pub rows: Vec<SpanRow>,
-    pub selected_span: Option<SpanDetails>,
 }
 
 #[derive(Clone, Debug)]
@@ -48,21 +47,11 @@ pub struct SpanRow {
     pub span_id: SpanId,
     pub depth: usize,
     pub name: String,
-    /// Absolute wall-clock start timestamp for this span, in Unix epoch nanoseconds.
-    pub start_unix_nano: u64,
-    /// Absolute wall-clock end timestamp for this span, in Unix epoch nanoseconds.
-    pub end_unix_nano: u64,
-}
-
-#[derive(Clone, Debug)]
-pub struct SpanDetails {
-    pub span_id: SpanId,
-    pub name: String,
-    /// Absolute wall-clock start timestamp for this span, in Unix epoch nanoseconds.
-    pub start_unix_nano: u64,
-    /// Absolute wall-clock end timestamp for this span, in Unix epoch nanoseconds.
-    pub end_unix_nano: u64,
     pub attributes: Vec<(String, String)>,
+    /// Absolute wall-clock start timestamp for this span, in Unix epoch nanoseconds.
+    pub start_unix_nano: u64,
+    /// Absolute wall-clock end timestamp for this span, in Unix epoch nanoseconds.
+    pub end_unix_nano: u64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -176,33 +165,11 @@ impl Store {
         }
     }
 
-    pub fn trace_detail(
-        &self,
-        trace_id: &TraceId,
-        selected_span: Option<&SpanId>,
-    ) -> Option<TraceDetailSnapshot> {
+    pub fn trace_detail(&self, trace_id: &TraceId) -> Option<TraceDetailSnapshot> {
         let store = self.traces.lock();
         let trace = store.get(trace_id)?;
         let rows = span_rows(trace);
-        let selected_span = selected_span
-            .and_then(|span_id| trace.span(span_id))
-            .or_else(|| rows.first().and_then(|row| trace.span(&row.span_id)))
-            .map(|span| SpanDetails {
-                span_id: span.span_id.clone(),
-                name: span.name.clone(),
-                start_unix_nano: span.start_unix_nano,
-                end_unix_nano: span.end_unix_nano,
-                attributes: span
-                    .attributes
-                    .iter()
-                    .map(|(key, value)| (key.clone(), value.clone()))
-                    .collect(),
-            });
-
-        Some(TraceDetailSnapshot {
-            rows,
-            selected_span,
-        })
+        Some(TraceDetailSnapshot { rows })
     }
 
     pub fn aggregate(&self, query: AggregateQuery) -> AggregateSnapshot {
@@ -359,6 +326,7 @@ fn span_rows(trace: &Trace) -> Vec<SpanRow> {
                 span_id: span.span_id.clone(),
                 depth: 0,
                 name: span.name.clone(),
+                attributes: span_attributes(span),
                 start_unix_nano: span.start_unix_nano,
                 end_unix_nano: span.end_unix_nano,
             });
@@ -397,6 +365,7 @@ fn append_children(
             span_id: span.span_id.clone(),
             depth,
             name: span.name.clone(),
+            attributes: span_attributes(span),
             start_unix_nano: span.start_unix_nano,
             end_unix_nano: span.end_unix_nano,
         });
@@ -408,4 +377,14 @@ fn append_children(
             rows,
         );
     }
+}
+
+fn span_attributes(span: &NormalizedSpan) -> Vec<(String, String)> {
+    let mut attributes = span
+        .attributes
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<Vec<_>>();
+    attributes.sort_by(|left, right| left.0.cmp(&right.0));
+    attributes
 }

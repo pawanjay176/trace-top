@@ -61,6 +61,8 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
         Line::from(vec![
             Span::styled("j/k", Style::default().fg(Color::Yellow)),
             Span::raw(" move span  "),
+            Span::styled("Enter", Style::default().fg(Color::Yellow)),
+            Span::raw(" attributes  "),
             Span::styled("b/Esc", Style::default().fg(Color::Yellow)),
             Span::raw(" back  "),
             Span::styled("a", Style::default().fg(Color::Yellow)),
@@ -79,22 +81,32 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
 
 fn render_spans(frame: &mut Frame, app: &mut AppState, area: ratatui::layout::Rect) {
     let visible_rows = app.trace_detail_visible_rows();
+    let mut selected_rendered_index = None;
+    let mut selected_is_expanded = false;
     let rows = if app.selected_trace.is_none() {
         vec![Row::new(vec![Cell::from("No trace selected or loaded.")])]
     } else if visible_rows.is_empty() {
         vec![Row::new(vec![Cell::from("No spans match search.")])]
     } else {
-        visible_rows
-            .iter()
-            .map(|(_, span)| {
-                Row::new(vec![
-                    Cell::from(format!("{}{}", "  ".repeat(span.depth), span.name)),
-                    Cell::from(format_duration_ms(Duration::from_nanos(
-                        span.end_unix_nano.saturating_sub(span.start_unix_nano),
-                    ))),
-                ])
-            })
-            .collect::<Vec<_>>()
+        let mut rows = Vec::new();
+        for (source_index, span) in &visible_rows {
+            if *source_index == app.selected_span_index {
+                selected_rendered_index = Some(rows.len());
+                selected_is_expanded = app.span_attributes_expanded(span);
+            }
+
+            rows.push(Row::new(vec![
+                Cell::from(format!("{}{}", "  ".repeat(span.depth), span.name)),
+                Cell::from(format_duration_ms(Duration::from_nanos(
+                    span.end_unix_nano.saturating_sub(span.start_unix_nano),
+                ))),
+            ]));
+
+            if app.span_attributes_expanded(span) {
+                rows.extend(attribute_rows(span.depth, &span.attributes));
+            }
+        }
+        rows
     };
 
     let table = Table::new(rows, [Constraint::Min(20), Constraint::Length(12)])
@@ -114,25 +126,30 @@ fn render_spans(frame: &mut Frame, app: &mut AppState, area: ratatui::layout::Re
 
     let mut state = TableState::default();
     if !visible_rows.is_empty() {
-        state.select(app.selected_visible_span_index());
+        state.select(selected_rendered_index);
+        if selected_is_expanded {
+            *state.offset_mut() = selected_rendered_index.unwrap_or(0).saturating_sub(2);
+        }
     }
     frame.render_stateful_widget(table, area, &mut state);
-
-    if let Some(details) = app
-        .selected_trace
-        .as_ref()
-        .and_then(|trace| trace.selected_span.as_ref())
-    {
-        let _ = (
-            &details.span_id,
-            &details.name,
-            details.start_unix_nano,
-            details.end_unix_nano,
-            details.attributes.len(),
-        );
-    }
 }
 
 fn format_duration_ms(duration: Duration) -> String {
     format!("{:.2}ms", duration.as_nanos() as f64 / 1_000_000.0)
+}
+
+fn attribute_rows(depth: usize, attributes: &[(String, String)]) -> Vec<Row<'static>> {
+    let indent = "  ".repeat(depth + 1);
+    if attributes.is_empty() {
+        return vec![attribute_row(format!("{indent}attributes: <none>"))];
+    }
+
+    attributes
+        .iter()
+        .map(|(key, value)| attribute_row(format!("{indent}{key}: {value}")))
+        .collect()
+}
+
+fn attribute_row(line: String) -> Row<'static> {
+    Row::new(vec![Cell::from(line), Cell::from("")]).style(Style::default().fg(Color::DarkGray))
 }

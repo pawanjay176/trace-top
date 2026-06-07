@@ -27,6 +27,7 @@ pub enum Action {
     ShowAggregates,
     ShowAggregateSpans,
     OpenAggregateSpanTrace,
+    ToggleSpanAttributes,
     MoveSelectionDown,
     MoveSelectionUp,
     MoveSpanDown,
@@ -78,6 +79,7 @@ pub struct AppState {
     pub selected_trace_id: Option<TraceId>,
     pub selected_trace: Option<TraceDetailSnapshot>,
     pub selected_span_index: usize,
+    pub expanded_span_id: Option<SpanId>,
     pub trace_detail_search: Option<String>,
     pub trace_detail_filter: Option<String>,
     pub aggregate_query: AggregateQuery,
@@ -105,6 +107,7 @@ impl AppState {
             selected_trace_id: None,
             selected_trace: None,
             selected_span_index: 0,
+            expanded_span_id: None,
             trace_detail_search: None,
             trace_detail_filter: None,
             aggregate_query: AggregateQuery::default(),
@@ -143,6 +146,7 @@ impl AppState {
             }
             Action::ShowAggregateSpans => self.open_selected_aggregate_row(store),
             Action::OpenAggregateSpanTrace => self.open_selected_aggregate_span_trace(store),
+            Action::ToggleSpanAttributes => self.toggle_selected_span_attributes(),
             Action::MoveSelectionDown => self.move_trace_selection_down(store),
             Action::MoveSelectionUp => self.move_trace_selection_up(store),
             Action::MoveSpanDown => self.move_span_selection_down(store),
@@ -178,10 +182,10 @@ impl AppState {
             .unwrap_or_default()
     }
 
-    pub fn selected_visible_span_index(&self) -> Option<usize> {
-        self.trace_detail_visible_rows()
-            .iter()
-            .position(|(source_index, _)| *source_index == self.selected_span_index)
+    pub fn span_attributes_expanded(&self, row: &SpanRow) -> bool {
+        self.expanded_span_id
+            .as_ref()
+            .is_some_and(|span_id| span_id == &row.span_id)
     }
 
     pub fn has_active_trace_list_search(&self) -> bool {
@@ -251,14 +255,9 @@ impl AppState {
             return;
         };
 
-        let selected_span_id = self
-            .selected_trace
-            .as_ref()
-            .and_then(|trace| trace.rows.get(self.selected_span_index))
-            .map(|row| &row.span_id);
-
-        self.selected_trace = store.trace_detail(trace_id, selected_span_id);
+        self.selected_trace = store.trace_detail(trace_id);
         self.clamp_span_selection();
+        self.clamp_expanded_span();
     }
 
     fn refresh_aggregates(&mut self, store: &Store) {
@@ -284,6 +283,7 @@ impl AppState {
             .get(self.selected_trace_index)
             .map(|row| row.trace_id.clone());
         self.selected_span_index = 0;
+        self.expanded_span_id = None;
         self.trace_detail_search = None;
         self.trace_detail_filter = None;
         self.screen = Screen::TraceDetail;
@@ -323,14 +323,16 @@ impl AppState {
         self.selected_trace_id = Some(trace_id.clone());
         self.trace_detail_search = None;
         self.trace_detail_filter = None;
-        self.selected_trace = store.trace_detail(&trace_id, Some(&span_id));
+        self.selected_trace = store.trace_detail(&trace_id);
         self.selected_span_index = self
             .selected_trace
             .as_ref()
             .and_then(|trace| trace.rows.iter().position(|row| row.span_id == span_id))
             .unwrap_or(0);
         self.screen = Screen::TraceDetail;
+        self.expanded_span_id = Some(span_id);
         self.clamp_span_selection();
+        self.clamp_expanded_span();
     }
 
     fn move_trace_selection_down(&mut self, store: &Store) {
@@ -396,6 +398,7 @@ impl AppState {
             .unwrap_or(0);
         if current + 1 < visible.len() {
             self.selected_span_index = visible[current + 1];
+            self.expanded_span_id = None;
         }
     }
 
@@ -413,6 +416,32 @@ impl AppState {
         };
         if current > 0 {
             self.selected_span_index = visible[current - 1];
+            self.expanded_span_id = None;
+        }
+    }
+
+    fn toggle_selected_span_attributes(&mut self) {
+        if self.screen != Screen::TraceDetail {
+            return;
+        }
+
+        let Some(row) = self
+            .selected_trace
+            .as_ref()
+            .and_then(|trace| trace.rows.get(self.selected_span_index))
+        else {
+            self.expanded_span_id = None;
+            return;
+        };
+
+        if self
+            .expanded_span_id
+            .as_ref()
+            .is_some_and(|span_id| span_id == &row.span_id)
+        {
+            self.expanded_span_id = None;
+        } else {
+            self.expanded_span_id = Some(row.span_id.clone());
         }
     }
 
@@ -454,10 +483,12 @@ impl AppState {
             }
             (Screen::TraceDetail, QueryMode::Search) => {
                 self.trace_detail_search = query.clone();
+                self.expanded_span_id = None;
                 self.select_first_visible_trace_span();
             }
             (Screen::TraceDetail, QueryMode::Filter) => {
                 self.trace_detail_filter = query.clone();
+                self.expanded_span_id = None;
                 self.select_first_visible_trace_span();
             }
             (Screen::Aggregates, QueryMode::Search) => {
@@ -535,6 +566,7 @@ impl AppState {
             Screen::TraceDetail => {
                 self.trace_detail_search = None;
                 self.trace_detail_filter = None;
+                self.expanded_span_id = None;
                 self.selected_span_index = 0;
             }
             Screen::Aggregates => {
@@ -567,6 +599,7 @@ impl AppState {
         } else {
             self.selected_span_index = 0;
         }
+        self.expanded_span_id = None;
     }
 
     fn clamp_trace_selection(&mut self) {
@@ -592,6 +625,23 @@ impl AppState {
 
         if !self.trace_span_matches_search(&trace.rows[self.selected_span_index]) {
             self.select_first_visible_trace_span();
+        }
+    }
+
+    fn clamp_expanded_span(&mut self) {
+        let Some(expanded_span_id) = self.expanded_span_id.as_ref() else {
+            return;
+        };
+        let Some(trace) = self.selected_trace.as_ref() else {
+            self.expanded_span_id = None;
+            return;
+        };
+        if !trace
+            .rows
+            .iter()
+            .any(|row| &row.span_id == expanded_span_id && self.trace_span_matches_search(row))
+        {
+            self.expanded_span_id = None;
         }
     }
 
