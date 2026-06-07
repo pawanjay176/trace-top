@@ -6,6 +6,11 @@ use std::{
 
 use crate::core::types::{NormalizedSpan, SpanId, Trace, TraceId};
 
+const ESTIMATED_NORMALIZED_SPAN_BYTES: usize = std::mem::size_of::<NormalizedSpan>()
+    + 32 // trace_id/span_id/parent string heap allowance
+    + 10 // average span name
+    + 64; // hashmap/attribute rough allowance
+
 #[derive(Clone, Debug, Default)]
 pub struct TraceListQuery {
     pub limit: usize,
@@ -18,6 +23,7 @@ pub struct TraceListSnapshot {
     pub rows: Vec<TraceSummary>,
     pub total_traces: usize,
     pub total_spans: usize,
+    pub estimated_store_bytes: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -160,10 +166,13 @@ impl Store {
         });
         rows.truncate(query.limit);
 
+        let total_spans = store.values().map(Trace::span_count).sum();
+
         TraceListSnapshot {
             rows,
             total_traces: store.len(),
-            total_spans: store.values().map(Trace::span_count).sum(),
+            total_spans,
+            estimated_store_bytes: estimated_store_bytes(total_spans),
         }
     }
 
@@ -321,6 +330,10 @@ fn trace_matches_pattern(trace: &Trace, pattern: &str) -> bool {
     trace.trace_id().contains(pattern)
         || trace.root_name().is_some_and(|name| name.contains(pattern))
         || trace.spans().any(|span| span.name.contains(pattern))
+}
+
+fn estimated_store_bytes(span_count: usize) -> usize {
+    span_count.saturating_mul(ESTIMATED_NORMALIZED_SPAN_BYTES)
 }
 
 fn span_rows(trace: &Trace) -> Vec<SpanRow> {

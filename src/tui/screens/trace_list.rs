@@ -153,6 +153,8 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: ratatui::layout::Rect)
             Span::raw(app.trace_list.total_traces.to_string()),
             Span::raw("  spans="),
             Span::raw(app.trace_list.total_spans.to_string()),
+            Span::raw("  store="),
+            Span::raw(format_store_gb(app.trace_list.estimated_store_bytes)),
         ]),
     ])
     .block(
@@ -185,4 +187,8 @@ fn format_start_time(unix_nano: u64) -> String {
 
 fn format_duration_ms(duration: Duration) -> String {
     format!("{:.2}ms", duration.as_nanos() as f64 / 1_000_000.0)
+}
+
+fn format_store_gb(bytes: usize) -> String {
+    format!("{:.3}GB", bytes as f64 / 1_000_000_000.0)
 }
