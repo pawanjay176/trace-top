@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState},
 };
 
-use crate::tui::app::AppState;
+use crate::tui::app::{AppState, Screen};
 
 use jiff::{Timestamp, tz::TimeZone};
 
@@ -23,6 +23,13 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
 
     frame.render_widget(Clear, area);
 
+    let search_style = if app.is_search_editing(Screen::Aggregates) {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Yellow)
+    };
     let header = Paragraph::new(Line::from(vec![
         Span::styled(
             "Aggregates",
@@ -38,12 +45,7 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
                 .unwrap_or("<none>"),
         ),
         Span::raw("  search="),
-        Span::raw(
-            app.aggregate_query
-                .span_name_search
-                .as_deref()
-                .unwrap_or("<none>"),
-        ),
+        Span::styled(app.search_label(Screen::Aggregates), search_style),
     ]))
     .block(Block::default().borders(Borders::ALL));
     frame.render_widget(header, layout[0]);
@@ -116,6 +118,8 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
         Span::raw(" back  "),
         Span::styled("r", Style::default().fg(Color::Yellow)),
         Span::raw(" refresh  "),
+        Span::styled("/", Style::default().fg(Color::Yellow)),
+        Span::raw(" search  "),
         Span::styled("q", Style::default().fg(Color::Yellow)),
         Span::raw(" quit"),
     ]))
@@ -137,6 +141,13 @@ pub fn render_spans(frame: &mut Frame, app: &mut AppState) {
     frame.render_widget(Clear, area);
 
     let query = app.aggregate_spans_query.as_ref();
+    let search_style = if app.is_search_editing(Screen::AggregateSpans) {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Yellow)
+    };
     let header = Paragraph::new(Line::from(vec![
         Span::styled(
             "Aggregate Spans",
@@ -156,6 +167,8 @@ pub fn render_spans(frame: &mut Frame, app: &mut AppState) {
                 .and_then(|query| query.group.as_deref())
                 .unwrap_or("<none>"),
         ),
+        Span::raw("  search="),
+        Span::styled(app.search_label(Screen::AggregateSpans), search_style),
     ]))
     .block(Block::default().borders(Borders::ALL));
     frame.render_widget(header, layout[0]);
@@ -220,6 +233,8 @@ pub fn render_spans(frame: &mut Frame, app: &mut AppState) {
         Span::raw(" aggregates  "),
         Span::styled("r", Style::default().fg(Color::Yellow)),
         Span::raw(" refresh  "),
+        Span::styled("/", Style::default().fg(Color::Yellow)),
+        Span::raw(" search  "),
         Span::styled("q", Style::default().fg(Color::Yellow)),
         Span::raw(" quit"),
     ]))

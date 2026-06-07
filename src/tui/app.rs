@@ -1,7 +1,7 @@
 use crate::core::{
     store::{
-        AggregateQuery, AggregateSnapshot, AggregateSpansQuery, AggregateSpansSnapshot, Store,
-        TraceDetailSnapshot, TraceListQuery, TraceListSnapshot,
+        AggregateQuery, AggregateSnapshot, AggregateSpansQuery, AggregateSpansSnapshot, SpanRow,
+        Store, TraceDetailSnapshot, TraceListQuery, TraceListSnapshot,
     },
     types::{SpanId, TraceId},
 };
@@ -15,6 +15,12 @@ pub enum Action {
     Resize(u16, u16),
     RefreshCurrentScreen,
     RefreshTraceList,
+    StartSearch,
+    SubmitSearch,
+    CancelSearch,
+    ClearSearch,
+    SearchPush(char),
+    SearchBackspace,
     ShowTraceList,
     ShowTraceDetail,
     ShowAggregates,
@@ -35,16 +41,35 @@ pub enum Screen {
 }
 
 #[derive(Debug)]
+pub struct SearchState {
+    pub active: bool,
+    pub target: Screen,
+    pub input: String,
+}
+
+impl Default for SearchState {
+    fn default() -> Self {
+        Self {
+            active: false,
+            target: Screen::TraceList,
+            input: String::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct AppState {
     pub screen: Screen,
     pub should_quit: bool,
     pub terminal_size: Option<(u16, u16)>,
+    pub search: SearchState,
     pub trace_list_query: TraceListQuery,
     pub trace_list: TraceListSnapshot,
     pub selected_trace_index: usize,
     pub selected_trace_id: Option<TraceId>,
     pub selected_trace: Option<TraceDetailSnapshot>,
     pub selected_span_index: usize,
+    pub trace_detail_search: Option<String>,
     pub aggregate_query: AggregateQuery,
     pub aggregate: AggregateSnapshot,
     pub selected_aggregate_index: usize,
@@ -59,6 +84,7 @@ impl AppState {
             screen: Screen::TraceList,
             should_quit: false,
             terminal_size: None,
+            search: SearchState::default(),
             trace_list_query: TraceListQuery {
                 limit: DEFAULT_TRACE_LIST_LIMIT,
                 search: None,
@@ -68,6 +94,7 @@ impl AppState {
             selected_trace_id: None,
             selected_trace: None,
             selected_span_index: 0,
+            trace_detail_search: None,
             aggregate_query: AggregateQuery::default(),
             aggregate: AggregateSnapshot::default(),
             selected_aggregate_index: 0,
@@ -84,6 +111,14 @@ impl AppState {
             Action::Resize(width, height) => self.terminal_size = Some((width, height)),
             Action::RefreshCurrentScreen => self.refresh_current_screen(store),
             Action::RefreshTraceList => self.refresh_trace_list(store),
+            Action::StartSearch => self.start_search(),
+            Action::SubmitSearch => self.submit_search(store),
+            Action::CancelSearch => self.cancel_search(),
+            Action::ClearSearch => self.clear_current_search(store),
+            Action::SearchPush(ch) => self.search.input.push(ch),
+            Action::SearchBackspace => {
+                self.search.input.pop();
+            }
             Action::ShowTraceList => {
                 self.screen = Screen::TraceList;
                 self.refresh_trace_list(store);
@@ -104,6 +139,53 @@ impl AppState {
 
     pub fn selected_trace_id_text(&self) -> &str {
         self.selected_trace_id.as_deref().unwrap_or("<none>")
+    }
+
+    pub fn trace_span_matches_search(&self, row: &SpanRow) -> bool {
+        self.trace_detail_search
+            .as_ref()
+            .is_none_or(|search| row.name.contains(search))
+    }
+
+    pub fn trace_detail_visible_rows(&self) -> Vec<(usize, &SpanRow)> {
+        self.selected_trace
+            .as_ref()
+            .map(|trace| {
+                trace
+                    .rows
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, row)| self.trace_span_matches_search(row))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn selected_visible_span_index(&self) -> Option<usize> {
+        self.trace_detail_visible_rows()
+            .iter()
+            .position(|(source_index, _)| *source_index == self.selected_span_index)
+    }
+
+    pub fn has_active_trace_list_search(&self) -> bool {
+        self.search.active || self.trace_list_query.search.is_some()
+    }
+
+    pub fn has_current_screen_search(&self) -> bool {
+        self.current_search_query().is_some()
+    }
+
+    pub fn search_label(&self, screen: Screen) -> String {
+        if self.search.active && self.search.target == screen {
+            return format!("{}|", self.search.input);
+        }
+
+        self.search_query_for_screen(screen)
+            .unwrap_or_else(|| "<none>".into())
+    }
+
+    pub fn is_search_editing(&self, screen: Screen) -> bool {
+        self.search.active && self.search.target == screen
     }
 
     fn refresh_current_screen(&mut self, store: &Store) {
@@ -164,6 +246,7 @@ impl AppState {
             .get(self.selected_trace_index)
             .map(|row| row.trace_id.clone());
         self.selected_span_index = 0;
+        self.trace_detail_search = None;
         self.screen = Screen::TraceDetail;
         self.refresh_selected_trace(store);
     }
@@ -177,6 +260,7 @@ impl AppState {
             span_name: row.span_name.clone(),
             group_by_attribute: self.aggregate_query.group_by_attribute.clone(),
             group: row.group.clone(),
+            search: None,
         });
         self.selected_aggregate_span_index = 0;
         self.screen = Screen::AggregateSpans;
@@ -197,6 +281,7 @@ impl AppState {
 
     fn open_trace_span(&mut self, store: &Store, trace_id: TraceId, span_id: SpanId) {
         self.selected_trace_id = Some(trace_id.clone());
+        self.trace_detail_search = None;
         self.selected_trace = store.trace_detail(&trace_id, Some(&span_id));
         self.selected_span_index = self
             .selected_trace
@@ -259,17 +344,132 @@ impl AppState {
         if self.screen != Screen::TraceDetail {
             return;
         }
-        let Some(trace) = self.selected_trace.as_ref() else {
+        let visible = self.visible_trace_span_indices();
+        if visible.is_empty() {
             return;
-        };
-        if self.selected_span_index + 1 < trace.rows.len() {
-            self.selected_span_index += 1;
+        }
+
+        let current = visible
+            .iter()
+            .position(|index| *index == self.selected_span_index)
+            .unwrap_or(0);
+        if current + 1 < visible.len() {
+            self.selected_span_index = visible[current + 1];
         }
     }
 
     fn move_span_selection_up(&mut self, _store: &Store) {
-        if self.screen == Screen::TraceDetail && self.selected_span_index > 0 {
-            self.selected_span_index -= 1;
+        if self.screen != Screen::TraceDetail {
+            return;
+        }
+
+        let visible = self.visible_trace_span_indices();
+        let Some(current) = visible
+            .iter()
+            .position(|index| *index == self.selected_span_index)
+        else {
+            return;
+        };
+        if current > 0 {
+            self.selected_span_index = visible[current - 1];
+        }
+    }
+
+    fn start_search(&mut self) {
+        self.search.active = true;
+        self.search.target = self.screen;
+        self.search.input = self.current_search_query().unwrap_or_default();
+    }
+
+    fn submit_search(&mut self, store: &Store) {
+        let query = search_query(self.search.input.clone());
+        let target = self.search.target;
+        self.search.active = false;
+
+        match target {
+            Screen::TraceList => {
+                self.trace_list_query.search = query;
+                self.selected_trace_index = 0;
+                self.refresh_trace_list(store);
+            }
+            Screen::TraceDetail => {
+                self.trace_detail_search = query;
+                self.select_first_visible_trace_span();
+            }
+            Screen::Aggregates => {
+                self.aggregate_query.span_name_search = query;
+                self.selected_aggregate_index = 0;
+                self.refresh_aggregates(store);
+            }
+            Screen::AggregateSpans => {
+                if let Some(aggregate_query) = self.aggregate_spans_query.as_mut() {
+                    aggregate_query.search = query;
+                }
+                self.selected_aggregate_span_index = 0;
+                self.refresh_aggregate_spans(store);
+            }
+        }
+    }
+
+    fn cancel_search(&mut self) {
+        self.search.active = false;
+    }
+
+    fn current_search_query(&self) -> Option<String> {
+        self.search_query_for_screen(self.screen)
+    }
+
+    fn search_query_for_screen(&self, screen: Screen) -> Option<String> {
+        match screen {
+            Screen::TraceList => self.trace_list_query.search.clone(),
+            Screen::TraceDetail => self.trace_detail_search.clone(),
+            Screen::Aggregates => self.aggregate_query.span_name_search.clone(),
+            Screen::AggregateSpans => self
+                .aggregate_spans_query
+                .as_ref()
+                .and_then(|query| query.search.clone()),
+        }
+    }
+
+    fn clear_current_search(&mut self, store: &Store) {
+        self.search.active = false;
+        match self.screen {
+            Screen::TraceList => {
+                self.trace_list_query.search = None;
+                self.selected_trace_index = 0;
+                self.refresh_trace_list(store);
+            }
+            Screen::TraceDetail => {
+                self.trace_detail_search = None;
+                self.selected_span_index = 0;
+            }
+            Screen::Aggregates => {
+                self.aggregate_query.span_name_search = None;
+                self.selected_aggregate_index = 0;
+                self.refresh_aggregates(store);
+            }
+            Screen::AggregateSpans => {
+                if let Some(query) = self.aggregate_spans_query.as_mut() {
+                    query.search = None;
+                }
+                self.selected_aggregate_span_index = 0;
+                self.refresh_aggregate_spans(store);
+            }
+        }
+    }
+
+    fn visible_trace_span_indices(&self) -> Vec<usize> {
+        self.trace_detail_visible_rows()
+            .into_iter()
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    fn select_first_visible_trace_span(&mut self) {
+        if let Some(index) = self.visible_trace_span_indices().first().copied() {
+            self.selected_span_index = index;
+        } else {
+            self.selected_span_index = 0;
         }
     }
 
@@ -293,6 +493,10 @@ impl AppState {
         } else if self.selected_span_index >= trace.rows.len() {
             self.selected_span_index = trace.rows.len() - 1;
         }
+
+        if !self.trace_span_matches_search(&trace.rows[self.selected_span_index]) {
+            self.select_first_visible_trace_span();
+        }
     }
 
     fn clamp_aggregate_selection(&mut self) {
@@ -309,5 +513,14 @@ impl AppState {
         } else if self.selected_aggregate_span_index >= self.aggregate_spans.rows.len() {
             self.selected_aggregate_span_index = self.aggregate_spans.rows.len() - 1;
         }
+    }
+}
+
+fn search_query(query: String) -> Option<String> {
+    let query = query.trim();
+    if query.is_empty() {
+        None
+    } else {
+        Some(query.to_owned())
     }
 }

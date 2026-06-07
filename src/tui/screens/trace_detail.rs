@@ -7,7 +7,7 @@ use ratatui::{
 };
 use std::time::Duration;
 
-use crate::tui::app::AppState;
+use crate::tui::app::{AppState, Screen};
 
 pub fn render(frame: &mut Frame, app: &mut AppState) {
     let area = frame.area();
@@ -22,12 +22,23 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
 
     frame.render_widget(Clear, area);
 
-    let title = Paragraph::new(Line::from(vec![Span::styled(
-        "Trace Detail",
+    let search_style = if app.is_search_editing(Screen::TraceDetail) {
         Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    )]))
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Yellow)
+    };
+    let title = Paragraph::new(Line::from(vec![
+        Span::styled(
+            "Trace Detail",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  search="),
+        Span::styled(app.search_label(Screen::TraceDetail), search_style),
+    ]))
     .block(Block::default().borders(Borders::ALL));
     frame.render_widget(title, layout[0]);
 
@@ -42,6 +53,8 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
         Span::raw(" aggregates  "),
         Span::styled("r", Style::default().fg(Color::Yellow)),
         Span::raw(" refresh  "),
+        Span::styled("/", Style::default().fg(Color::Yellow)),
+        Span::raw(" search  "),
         Span::styled("q", Style::default().fg(Color::Yellow)),
         Span::raw(" quit"),
     ]))
@@ -50,24 +63,24 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
 }
 
 fn render_spans(frame: &mut Frame, app: &mut AppState, area: ratatui::layout::Rect) {
-    let rows = app
-        .selected_trace
-        .as_ref()
-        .map(|trace| {
-            trace
-                .rows
-                .iter()
-                .map(|span| {
-                    Row::new(vec![
-                        Cell::from(format!("{}{}", "  ".repeat(span.depth), span.name)),
-                        Cell::from(format_duration_ms(Duration::from_nanos(
-                            span.end_unix_nano.saturating_sub(span.start_unix_nano),
-                        ))),
-                    ])
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_else(|| vec![Row::new(vec![Cell::from("No trace selected or loaded.")])]);
+    let visible_rows = app.trace_detail_visible_rows();
+    let rows = if app.selected_trace.is_none() {
+        vec![Row::new(vec![Cell::from("No trace selected or loaded.")])]
+    } else if visible_rows.is_empty() {
+        vec![Row::new(vec![Cell::from("No spans match search.")])]
+    } else {
+        visible_rows
+            .iter()
+            .map(|(_, span)| {
+                Row::new(vec![
+                    Cell::from(format!("{}{}", "  ".repeat(span.depth), span.name)),
+                    Cell::from(format_duration_ms(Duration::from_nanos(
+                        span.end_unix_nano.saturating_sub(span.start_unix_nano),
+                    ))),
+                ])
+            })
+            .collect::<Vec<_>>()
+    };
 
     let table = Table::new(rows, [Constraint::Min(20), Constraint::Length(12)])
         .header(Row::new(["span", "duration"]).style(Style::default().fg(Color::DarkGray)))
@@ -85,12 +98,8 @@ fn render_spans(frame: &mut Frame, app: &mut AppState, area: ratatui::layout::Re
         .highlight_symbol(">> ");
 
     let mut state = TableState::default();
-    if app
-        .selected_trace
-        .as_ref()
-        .is_some_and(|trace| !trace.rows.is_empty())
-    {
-        state.select(Some(app.selected_span_index));
+    if !visible_rows.is_empty() {
+        state.select(app.selected_visible_span_index());
     }
     frame.render_stateful_widget(table, area, &mut state);
 

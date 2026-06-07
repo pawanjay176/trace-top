@@ -7,7 +7,7 @@ use ratatui::{
 };
 use std::time::Duration;
 
-use crate::tui::app::AppState;
+use crate::tui::app::{AppState, Screen};
 
 use jiff::{Timestamp, tz::TimeZone};
 
@@ -29,7 +29,13 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
 }
 
 fn render_header(frame: &mut Frame, app: &AppState, area: ratatui::layout::Rect) {
-    let search = app.trace_list_query.search.as_deref().unwrap_or("<none>");
+    let search_style = if app.is_search_editing(Screen::TraceList) {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Yellow)
+    };
     let header = Paragraph::new(Line::from(vec![
         Span::styled(
             "trace-tui",
@@ -39,7 +45,7 @@ fn render_header(frame: &mut Frame, app: &AppState, area: ratatui::layout::Rect)
         ),
         Span::raw("  recent traces"),
         Span::raw("  search="),
-        Span::styled(search, Style::default().fg(Color::Yellow)),
+        Span::styled(app.search_label(Screen::TraceList), search_style),
         Span::raw("  limit="),
         Span::raw(app.trace_list_query.limit.to_string()),
     ]))
@@ -123,6 +129,8 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: ratatui::layout::Rect)
             Span::raw(" aggregates  "),
             Span::styled("r", Style::default().fg(Color::Yellow)),
             Span::raw(" refresh  "),
+            Span::styled("/", Style::default().fg(Color::Yellow)),
+            Span::raw(" search  "),
             Span::styled("q", Style::default().fg(Color::Yellow)),
             Span::raw(" quit"),
         ]),

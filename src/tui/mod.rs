@@ -34,6 +34,7 @@ fn run_app(terminal: &mut TerminalSession, store: Arc<Store>) -> Result<(), Box<
 
     loop {
         if app.screen == Screen::TraceList
+            && !app.has_active_trace_list_search()
             && last_trace_list_refresh.elapsed() >= TRACE_LIST_REFRESH_INTERVAL
         {
             app.update(Action::RefreshTraceList, &store);

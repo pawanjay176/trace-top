@@ -69,6 +69,7 @@ pub struct AggregateSpansQuery {
     pub span_name: String,
     pub group_by_attribute: Option<String>,
     pub group: Option<String>,
+    pub search: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -131,10 +132,11 @@ impl Store {
         let mut rows = store
             .values()
             .filter(|trace| {
-                query
-                    .search
-                    .as_ref()
-                    .is_none_or(|search| trace.spans().any(|span| span.name.contains(search)))
+                query.search.as_ref().is_none_or(|search| {
+                    trace.trace_id().contains(search)
+                        || trace.root_name().is_some_and(|name| name.contains(search))
+                        || trace.spans().any(|span| span.name.contains(search))
+                })
             })
             .map(|trace| TraceSummary {
                 trace_id: trace.trace_id().clone(),
@@ -253,6 +255,13 @@ impl Store {
                     .group_by_attribute
                     .as_ref()
                     .is_none_or(|key| span.attributes.get(key).cloned() == query.group)
+            })
+            .filter(|span| {
+                query.search.as_ref().is_none_or(|search| {
+                    span.name.contains(search)
+                        || span.trace_id.contains(search)
+                        || span.span_id.contains(search)
+                })
             })
             .map(|span| AggregateSpanRow {
                 trace_id: span.trace_id.clone(),

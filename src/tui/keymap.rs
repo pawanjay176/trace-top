@@ -1,14 +1,32 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::app::{Action, AppState, Screen};
 
 pub fn map_key(key: KeyEvent, app: &AppState) -> Action {
+    if app.search.active {
+        return match key.code {
+            KeyCode::Esc => Action::CancelSearch,
+            KeyCode::Enter => Action::SubmitSearch,
+            KeyCode::Backspace => Action::SearchBackspace,
+            KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                Action::SearchPush(ch)
+            }
+            _ => Action::Noop,
+        };
+    }
+
     match key.code {
         KeyCode::Char('q') => Action::Quit,
-        KeyCode::Esc => match app.screen {
-            Screen::AggregateSpans => Action::ShowAggregates,
-            _ => Action::ShowTraceList,
-        },
+        KeyCode::Esc => {
+            if app.has_current_screen_search() {
+                Action::ClearSearch
+            } else {
+                match app.screen {
+                    Screen::AggregateSpans => Action::ShowAggregates,
+                    _ => Action::ShowTraceList,
+                }
+            }
+        }
         KeyCode::Enter => match app.screen {
             Screen::TraceList => Action::ShowTraceDetail,
             Screen::Aggregates => Action::ShowAggregateSpans,
@@ -16,6 +34,7 @@ pub fn map_key(key: KeyEvent, app: &AppState) -> Action {
             _ => Action::Noop,
         },
         KeyCode::Char('a') => Action::ShowAggregates,
+        KeyCode::Char('/') => Action::StartSearch,
         KeyCode::Char('b') => match app.screen {
             Screen::AggregateSpans => Action::ShowAggregates,
             _ => Action::ShowTraceList,
