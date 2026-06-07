@@ -11,5 +11,6 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
         Screen::TraceList => trace_list::render(frame, app),
         Screen::TraceDetail => trace_detail::render(frame, app),
         Screen::Aggregates => aggregates::render(frame, app),
+        Screen::AggregateSpans => aggregates::render_spans(frame, app),
     }
 }

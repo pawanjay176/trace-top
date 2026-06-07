@@ -3,10 +3,12 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState},
 };
 
 use crate::tui::app::AppState;
+
+use jiff::{Timestamp, tz::TimeZone};
 
 pub fn render(frame: &mut Frame, app: &mut AppState) {
     let area = frame.area();
@@ -47,9 +49,7 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
     frame.render_widget(header, layout[0]);
 
     let rows = if app.aggregate.rows.is_empty() {
-        vec![Row::new(vec![Cell::from(
-            "No aggregate data loaded. Waiting for store implementation.",
-        )])]
+        vec![Row::new(vec![Cell::from("No aggregate data loaded.")])]
     } else {
         app.aggregate
             .rows
@@ -92,10 +92,26 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
         Block::default()
             .title(" Span Aggregates ")
             .borders(Borders::ALL),
-    );
-    frame.render_widget(table, layout[1]);
+    )
+    .row_highlight_style(
+        Style::default()
+            .bg(Color::Rgb(26, 34, 48))
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
+    )
+    .highlight_symbol(">> ");
+
+    let mut state = TableState::default();
+    if !app.aggregate.rows.is_empty() {
+        state.select(Some(app.selected_aggregate_index));
+    }
+    frame.render_stateful_widget(table, layout[1], &mut state);
 
     let footer = Paragraph::new(Line::from(vec![
+        Span::styled("j/k", Style::default().fg(Color::Yellow)),
+        Span::raw(" move  "),
+        Span::styled("Enter", Style::default().fg(Color::Yellow)),
+        Span::raw(" spans  "),
         Span::styled("b/Esc", Style::default().fg(Color::Yellow)),
         Span::raw(" back  "),
         Span::styled("r", Style::default().fg(Color::Yellow)),
@@ -107,6 +123,129 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
     frame.render_widget(footer, layout[2]);
 }
 
+pub fn render_spans(frame: &mut Frame, app: &mut AppState) {
+    let area = frame.area();
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(8),
+            Constraint::Length(4),
+        ])
+        .split(area);
+
+    frame.render_widget(Clear, area);
+
+    let query = app.aggregate_spans_query.as_ref();
+    let header = Paragraph::new(Line::from(vec![
+        Span::styled(
+            "Aggregate Spans",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  span="),
+        Span::raw(
+            query
+                .map(|query| query.span_name.as_str())
+                .unwrap_or("<none>"),
+        ),
+        Span::raw("  group="),
+        Span::raw(
+            query
+                .and_then(|query| query.group.as_deref())
+                .unwrap_or("<none>"),
+        ),
+    ]))
+    .block(Block::default().borders(Borders::ALL));
+    frame.render_widget(header, layout[0]);
+
+    let rows = if app.aggregate_spans.rows.is_empty() {
+        vec![Row::new(vec![Cell::from(
+            "No spans for selected aggregate.",
+        )])]
+    } else {
+        app.aggregate_spans
+            .rows
+            .iter()
+            .map(|row| {
+                Row::new(vec![
+                    Cell::from(row.span_name.clone()),
+                    Cell::from(format_duration(row.duration_nano)),
+                    Cell::from(format_start_time(row.start_unix_nano)),
+                    Cell::from(short_trace_id(&row.trace_id)),
+                ])
+            })
+            .collect()
+    };
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Percentage(45),
+            Constraint::Length(12),
+            Constraint::Length(10),
+            Constraint::Length(18),
+        ],
+    )
+    .header(
+        Row::new(["span", "duration", "start", "trace"])
+            .style(Style::default().fg(Color::DarkGray)),
+    )
+    .block(
+        Block::default()
+            .title(" Spans By Duration ")
+            .borders(Borders::ALL),
+    )
+    .row_highlight_style(
+        Style::default()
+            .bg(Color::Rgb(26, 34, 48))
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
+    )
+    .highlight_symbol(">> ");
+
+    let mut state = TableState::default();
+    if !app.aggregate_spans.rows.is_empty() {
+        state.select(Some(app.selected_aggregate_span_index));
+    }
+    frame.render_stateful_widget(table, layout[1], &mut state);
+
+    let footer = Paragraph::new(Line::from(vec![
+        Span::styled("j/k", Style::default().fg(Color::Yellow)),
+        Span::raw(" move  "),
+        Span::styled("Enter", Style::default().fg(Color::Yellow)),
+        Span::raw(" open trace  "),
+        Span::styled("b/Esc", Style::default().fg(Color::Yellow)),
+        Span::raw(" aggregates  "),
+        Span::styled("r", Style::default().fg(Color::Yellow)),
+        Span::raw(" refresh  "),
+        Span::styled("q", Style::default().fg(Color::Yellow)),
+        Span::raw(" quit"),
+    ]))
+    .block(Block::default().borders(Borders::ALL));
+    frame.render_widget(footer, layout[2]);
+}
+
 fn format_duration(duration_nano: u64) -> String {
     format!("{:.2}ms", duration_nano as f64 / 1_000_000.0)
+}
+
+fn format_start_time(unix_nano: u64) -> String {
+    if unix_nano == 0 {
+        return "-".into();
+    }
+
+    Timestamp::from_nanosecond(unix_nano as i128)
+        .map(|timestamp| {
+            timestamp
+                .to_zoned(TimeZone::system())
+                .strftime("%H:%M:%S")
+                .to_string()
+        })
+        .unwrap_or_else(|_| "-".into())
+}
+
+fn short_trace_id(trace_id: &str) -> String {
+    trace_id.chars().take(16).collect()
 }

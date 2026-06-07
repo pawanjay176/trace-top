@@ -64,9 +64,21 @@ pub struct AggregateQuery {
     pub group_by_attribute: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct AggregateSpansQuery {
+    pub span_name: String,
+    pub group_by_attribute: Option<String>,
+    pub group: Option<String>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct AggregateSnapshot {
     pub rows: Vec<AggregateRow>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AggregateSpansSnapshot {
+    pub rows: Vec<AggregateSpanRow>,
 }
 
 #[derive(Clone, Debug)]
@@ -79,6 +91,16 @@ pub struct AggregateRow {
     pub p95_nano: u64,
     pub max_nano: u64,
     pub error_count: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct AggregateSpanRow {
+    pub trace_id: TraceId,
+    pub span_id: SpanId,
+    pub span_name: String,
+    pub duration_nano: u64,
+    /// Absolute wall-clock start timestamp for this span, in Unix epoch nanoseconds.
+    pub start_unix_nano: u64,
 }
 
 /// A simple key value store that stores all traces received over the server.
@@ -218,6 +240,32 @@ impl Store {
         });
 
         AggregateSnapshot { rows }
+    }
+
+    pub fn aggregate_spans(&self, query: AggregateSpansQuery) -> AggregateSpansSnapshot {
+        let store = self.traces.lock();
+        let mut rows = store
+            .values()
+            .flat_map(Trace::spans)
+            .filter(|span| span.name == query.span_name)
+            .filter(|span| {
+                query
+                    .group_by_attribute
+                    .as_ref()
+                    .is_none_or(|key| span.attributes.get(key).cloned() == query.group)
+            })
+            .map(|span| AggregateSpanRow {
+                trace_id: span.trace_id.clone(),
+                span_id: span.span_id.clone(),
+                span_name: span.name.clone(),
+                duration_nano: span.end_unix_nano.saturating_sub(span.start_unix_nano),
+                start_unix_nano: span.start_unix_nano,
+            })
+            .collect::<Vec<_>>();
+
+        rows.sort_by_key(|row| std::cmp::Reverse(row.duration_nano));
+
+        AggregateSpansSnapshot { rows }
     }
 
     /// Takes a vector of `NormalizedSpan` received from the server and inserts it into
