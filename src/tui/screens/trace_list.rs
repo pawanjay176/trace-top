@@ -36,6 +36,13 @@ fn render_header(frame: &mut Frame, app: &AppState, area: ratatui::layout::Rect)
     } else {
         Style::default().fg(Color::Yellow)
     };
+    let filter_style = if app.is_filter_editing(Screen::TraceList) {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Yellow)
+    };
     let header = Paragraph::new(Line::from(vec![
         Span::styled(
             "trace-tui",
@@ -46,6 +53,8 @@ fn render_header(frame: &mut Frame, app: &AppState, area: ratatui::layout::Rect)
         Span::raw("  recent traces"),
         Span::raw("  search="),
         Span::styled(app.search_label(Screen::TraceList), search_style),
+        Span::raw("  filter="),
+        Span::styled(app.filter_label(Screen::TraceList), filter_style),
         Span::raw("  limit="),
         Span::raw(app.trace_list_query.limit.to_string()),
     ]))
@@ -131,6 +140,8 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: ratatui::layout::Rect)
             Span::raw(" refresh  "),
             Span::styled("/", Style::default().fg(Color::Yellow)),
             Span::raw(" search  "),
+            Span::styled("f", Style::default().fg(Color::Yellow)),
+            Span::raw(" filter  "),
             Span::styled("q", Style::default().fg(Color::Yellow)),
             Span::raw(" quit"),
         ]),

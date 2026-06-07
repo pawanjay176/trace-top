@@ -10,6 +10,7 @@ use crate::core::types::{NormalizedSpan, SpanId, Trace, TraceId};
 pub struct TraceListQuery {
     pub limit: usize,
     pub search: Option<String>,
+    pub filter: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -61,6 +62,7 @@ pub struct SpanDetails {
 #[derive(Clone, Debug, Default)]
 pub struct AggregateQuery {
     pub span_name_search: Option<String>,
+    pub span_name_filter: Option<String>,
     pub group_by_attribute: Option<String>,
 }
 
@@ -70,6 +72,7 @@ pub struct AggregateSpansQuery {
     pub group_by_attribute: Option<String>,
     pub group: Option<String>,
     pub search: Option<String>,
+    pub filter: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -132,11 +135,14 @@ impl Store {
         let mut rows = store
             .values()
             .filter(|trace| {
-                query.search.as_ref().is_none_or(|search| {
-                    trace.trace_id().contains(search)
-                        || trace.root_name().is_some_and(|name| name.contains(search))
-                        || trace.spans().any(|span| span.name.contains(search))
-                })
+                query
+                    .search
+                    .as_ref()
+                    .is_none_or(|search| trace_matches_pattern(trace, search))
+                    && query
+                        .filter
+                        .as_ref()
+                        .is_none_or(|filter| !trace_matches_pattern(trace, filter))
             })
             .map(|trace| TraceSummary {
                 trace_id: trace.trace_id().clone(),
@@ -202,6 +208,13 @@ impl Store {
             {
                 continue;
             }
+            if query
+                .span_name_filter
+                .as_ref()
+                .is_some_and(|filter| span.name.contains(filter))
+            {
+                continue;
+            }
 
             let group = query
                 .group_by_attribute
@@ -263,6 +276,13 @@ impl Store {
                         || span.span_id.contains(search)
                 })
             })
+            .filter(|span| {
+                query.filter.as_ref().is_none_or(|filter| {
+                    !span.name.contains(filter)
+                        && !span.trace_id.contains(filter)
+                        && !span.span_id.contains(filter)
+                })
+            })
             .map(|span| AggregateSpanRow {
                 trace_id: span.trace_id.clone(),
                 span_id: span.span_id.clone(),
@@ -295,6 +315,12 @@ impl Store {
             }
         }
     }
+}
+
+fn trace_matches_pattern(trace: &Trace, pattern: &str) -> bool {
+    trace.trace_id().contains(pattern)
+        || trace.root_name().is_some_and(|name| name.contains(pattern))
+        || trace.spans().any(|span| span.name.contains(pattern))
 }
 
 fn span_rows(trace: &Trace) -> Vec<SpanRow> {

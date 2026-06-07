@@ -29,6 +29,13 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
     } else {
         Style::default().fg(Color::Yellow)
     };
+    let filter_style = if app.is_filter_editing(Screen::TraceDetail) {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Yellow)
+    };
     let title = Paragraph::new(Line::from(vec![
         Span::styled(
             "Trace Detail",
@@ -38,6 +45,8 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
         ),
         Span::raw("  search="),
         Span::styled(app.search_label(Screen::TraceDetail), search_style),
+        Span::raw("  filter="),
+        Span::styled(app.filter_label(Screen::TraceDetail), filter_style),
     ]))
     .block(Block::default().borders(Borders::ALL));
     frame.render_widget(title, layout[0]);
@@ -55,6 +64,8 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
         Span::raw(" refresh  "),
         Span::styled("/", Style::default().fg(Color::Yellow)),
         Span::raw(" search  "),
+        Span::styled("f", Style::default().fg(Color::Yellow)),
+        Span::raw(" filter  "),
         Span::styled("q", Style::default().fg(Color::Yellow)),
         Span::raw(" quit"),
     ]))

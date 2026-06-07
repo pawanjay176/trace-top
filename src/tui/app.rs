@@ -16,6 +16,7 @@ pub enum Action {
     RefreshCurrentScreen,
     RefreshTraceList,
     StartSearch,
+    StartFilter,
     SubmitSearch,
     CancelSearch,
     ClearSearch,
@@ -40,10 +41,17 @@ pub enum Screen {
     AggregateSpans,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum QueryMode {
+    Search,
+    Filter,
+}
+
 #[derive(Debug)]
 pub struct SearchState {
     pub active: bool,
     pub target: Screen,
+    pub mode: QueryMode,
     pub input: String,
 }
 
@@ -52,6 +60,7 @@ impl Default for SearchState {
         Self {
             active: false,
             target: Screen::TraceList,
+            mode: QueryMode::Search,
             input: String::new(),
         }
     }
@@ -70,6 +79,7 @@ pub struct AppState {
     pub selected_trace: Option<TraceDetailSnapshot>,
     pub selected_span_index: usize,
     pub trace_detail_search: Option<String>,
+    pub trace_detail_filter: Option<String>,
     pub aggregate_query: AggregateQuery,
     pub aggregate: AggregateSnapshot,
     pub selected_aggregate_index: usize,
@@ -88,6 +98,7 @@ impl AppState {
             trace_list_query: TraceListQuery {
                 limit: DEFAULT_TRACE_LIST_LIMIT,
                 search: None,
+                filter: None,
             },
             trace_list: TraceListSnapshot::default(),
             selected_trace_index: 0,
@@ -95,6 +106,7 @@ impl AppState {
             selected_trace: None,
             selected_span_index: 0,
             trace_detail_search: None,
+            trace_detail_filter: None,
             aggregate_query: AggregateQuery::default(),
             aggregate: AggregateSnapshot::default(),
             selected_aggregate_index: 0,
@@ -112,6 +124,7 @@ impl AppState {
             Action::RefreshCurrentScreen => self.refresh_current_screen(store),
             Action::RefreshTraceList => self.refresh_trace_list(store),
             Action::StartSearch => self.start_search(),
+            Action::StartFilter => self.start_filter(),
             Action::SubmitSearch => self.submit_search(store),
             Action::CancelSearch => self.cancel_search(),
             Action::ClearSearch => self.clear_current_search(store),
@@ -145,6 +158,10 @@ impl AppState {
         self.trace_detail_search
             .as_ref()
             .is_none_or(|search| row.name.contains(search))
+            && self
+                .trace_detail_filter
+                .as_ref()
+                .is_none_or(|filter| !row.name.contains(filter))
     }
 
     pub fn trace_detail_visible_rows(&self) -> Vec<(usize, &SpanRow)> {
@@ -168,15 +185,20 @@ impl AppState {
     }
 
     pub fn has_active_trace_list_search(&self) -> bool {
-        self.search.active || self.trace_list_query.search.is_some()
+        self.search.active
+            || self.trace_list_query.search.is_some()
+            || self.trace_list_query.filter.is_some()
     }
 
     pub fn has_current_screen_search(&self) -> bool {
-        self.current_search_query().is_some()
+        self.current_search_query().is_some() || self.current_filter_query().is_some()
     }
 
     pub fn search_label(&self, screen: Screen) -> String {
-        if self.search.active && self.search.target == screen {
+        if self.search.active
+            && self.search.target == screen
+            && self.search.mode == QueryMode::Search
+        {
             return format!("{}|", self.search.input);
         }
 
@@ -185,7 +207,23 @@ impl AppState {
     }
 
     pub fn is_search_editing(&self, screen: Screen) -> bool {
-        self.search.active && self.search.target == screen
+        self.search.active && self.search.target == screen && self.search.mode == QueryMode::Search
+    }
+
+    pub fn filter_label(&self, screen: Screen) -> String {
+        if self.search.active
+            && self.search.target == screen
+            && self.search.mode == QueryMode::Filter
+        {
+            return format!("{}|", self.search.input);
+        }
+
+        self.filter_query_for_screen(screen)
+            .unwrap_or_else(|| "<none>".into())
+    }
+
+    pub fn is_filter_editing(&self, screen: Screen) -> bool {
+        self.search.active && self.search.target == screen && self.search.mode == QueryMode::Filter
     }
 
     fn refresh_current_screen(&mut self, store: &Store) {
@@ -247,6 +285,7 @@ impl AppState {
             .map(|row| row.trace_id.clone());
         self.selected_span_index = 0;
         self.trace_detail_search = None;
+        self.trace_detail_filter = None;
         self.screen = Screen::TraceDetail;
         self.refresh_selected_trace(store);
     }
@@ -261,6 +300,7 @@ impl AppState {
             group_by_attribute: self.aggregate_query.group_by_attribute.clone(),
             group: row.group.clone(),
             search: None,
+            filter: None,
         });
         self.selected_aggregate_span_index = 0;
         self.screen = Screen::AggregateSpans;
@@ -282,6 +322,7 @@ impl AppState {
     fn open_trace_span(&mut self, store: &Store, trace_id: TraceId, span_id: SpanId) {
         self.selected_trace_id = Some(trace_id.clone());
         self.trace_detail_search = None;
+        self.trace_detail_filter = None;
         self.selected_trace = store.trace_detail(&trace_id, Some(&span_id));
         self.selected_span_index = self
             .selected_trace
@@ -376,34 +417,69 @@ impl AppState {
     }
 
     fn start_search(&mut self) {
+        self.start_query(QueryMode::Search);
+    }
+
+    fn start_filter(&mut self) {
+        self.start_query(QueryMode::Filter);
+    }
+
+    fn start_query(&mut self, mode: QueryMode) {
         self.search.active = true;
         self.search.target = self.screen;
-        self.search.input = self.current_search_query().unwrap_or_default();
+        self.search.mode = mode;
+        self.search.input = match mode {
+            QueryMode::Search => self.current_search_query(),
+            QueryMode::Filter => self.current_filter_query(),
+        }
+        .unwrap_or_default();
     }
 
     fn submit_search(&mut self, store: &Store) {
         let query = search_query(self.search.input.clone());
         let target = self.search.target;
+        let mode = self.search.mode;
         self.search.active = false;
 
-        match target {
-            Screen::TraceList => {
-                self.trace_list_query.search = query;
+        match (target, mode) {
+            (Screen::TraceList, QueryMode::Search) => {
+                self.trace_list_query.search = query.clone();
                 self.selected_trace_index = 0;
                 self.refresh_trace_list(store);
             }
-            Screen::TraceDetail => {
-                self.trace_detail_search = query;
+            (Screen::TraceList, QueryMode::Filter) => {
+                self.trace_list_query.filter = query.clone();
+                self.selected_trace_index = 0;
+                self.refresh_trace_list(store);
+            }
+            (Screen::TraceDetail, QueryMode::Search) => {
+                self.trace_detail_search = query.clone();
                 self.select_first_visible_trace_span();
             }
-            Screen::Aggregates => {
-                self.aggregate_query.span_name_search = query;
+            (Screen::TraceDetail, QueryMode::Filter) => {
+                self.trace_detail_filter = query.clone();
+                self.select_first_visible_trace_span();
+            }
+            (Screen::Aggregates, QueryMode::Search) => {
+                self.aggregate_query.span_name_search = query.clone();
                 self.selected_aggregate_index = 0;
                 self.refresh_aggregates(store);
             }
-            Screen::AggregateSpans => {
+            (Screen::Aggregates, QueryMode::Filter) => {
+                self.aggregate_query.span_name_filter = query.clone();
+                self.selected_aggregate_index = 0;
+                self.refresh_aggregates(store);
+            }
+            (Screen::AggregateSpans, QueryMode::Search) => {
                 if let Some(aggregate_query) = self.aggregate_spans_query.as_mut() {
-                    aggregate_query.search = query;
+                    aggregate_query.search = query.clone();
+                }
+                self.selected_aggregate_span_index = 0;
+                self.refresh_aggregate_spans(store);
+            }
+            (Screen::AggregateSpans, QueryMode::Filter) => {
+                if let Some(aggregate_query) = self.aggregate_spans_query.as_mut() {
+                    aggregate_query.filter = query.clone();
                 }
                 self.selected_aggregate_span_index = 0;
                 self.refresh_aggregate_spans(store);
@@ -419,6 +495,10 @@ impl AppState {
         self.search_query_for_screen(self.screen)
     }
 
+    fn current_filter_query(&self) -> Option<String> {
+        self.filter_query_for_screen(self.screen)
+    }
+
     fn search_query_for_screen(&self, screen: Screen) -> Option<String> {
         match screen {
             Screen::TraceList => self.trace_list_query.search.clone(),
@@ -431,26 +511,42 @@ impl AppState {
         }
     }
 
+    fn filter_query_for_screen(&self, screen: Screen) -> Option<String> {
+        match screen {
+            Screen::TraceList => self.trace_list_query.filter.clone(),
+            Screen::TraceDetail => self.trace_detail_filter.clone(),
+            Screen::Aggregates => self.aggregate_query.span_name_filter.clone(),
+            Screen::AggregateSpans => self
+                .aggregate_spans_query
+                .as_ref()
+                .and_then(|query| query.filter.clone()),
+        }
+    }
+
     fn clear_current_search(&mut self, store: &Store) {
         self.search.active = false;
         match self.screen {
             Screen::TraceList => {
                 self.trace_list_query.search = None;
+                self.trace_list_query.filter = None;
                 self.selected_trace_index = 0;
                 self.refresh_trace_list(store);
             }
             Screen::TraceDetail => {
                 self.trace_detail_search = None;
+                self.trace_detail_filter = None;
                 self.selected_span_index = 0;
             }
             Screen::Aggregates => {
                 self.aggregate_query.span_name_search = None;
+                self.aggregate_query.span_name_filter = None;
                 self.selected_aggregate_index = 0;
                 self.refresh_aggregates(store);
             }
             Screen::AggregateSpans => {
                 if let Some(query) = self.aggregate_spans_query.as_mut() {
                     query.search = None;
+                    query.filter = None;
                 }
                 self.selected_aggregate_span_index = 0;
                 self.refresh_aggregate_spans(store);

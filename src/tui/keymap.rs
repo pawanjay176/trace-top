@@ -35,6 +35,7 @@ pub fn map_key(key: KeyEvent, app: &AppState) -> Action {
         },
         KeyCode::Char('a') => Action::ShowAggregates,
         KeyCode::Char('/') => Action::StartSearch,
+        KeyCode::Char('f') => Action::StartFilter,
         KeyCode::Char('b') => match app.screen {
             Screen::AggregateSpans => Action::ShowAggregates,
             _ => Action::ShowTraceList,

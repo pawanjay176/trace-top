@@ -30,6 +30,13 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
     } else {
         Style::default().fg(Color::Yellow)
     };
+    let filter_style = if app.is_filter_editing(Screen::Aggregates) {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Yellow)
+    };
     let header = Paragraph::new(Line::from(vec![
         Span::styled(
             "Aggregates",
@@ -46,6 +53,8 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
         ),
         Span::raw("  search="),
         Span::styled(app.search_label(Screen::Aggregates), search_style),
+        Span::raw("  filter="),
+        Span::styled(app.filter_label(Screen::Aggregates), filter_style),
     ]))
     .block(Block::default().borders(Borders::ALL));
     frame.render_widget(header, layout[0]);
@@ -120,6 +129,8 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
         Span::raw(" refresh  "),
         Span::styled("/", Style::default().fg(Color::Yellow)),
         Span::raw(" search  "),
+        Span::styled("f", Style::default().fg(Color::Yellow)),
+        Span::raw(" filter  "),
         Span::styled("q", Style::default().fg(Color::Yellow)),
         Span::raw(" quit"),
     ]))
@@ -148,6 +159,13 @@ pub fn render_spans(frame: &mut Frame, app: &mut AppState) {
     } else {
         Style::default().fg(Color::Yellow)
     };
+    let filter_style = if app.is_filter_editing(Screen::AggregateSpans) {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Yellow)
+    };
     let header = Paragraph::new(Line::from(vec![
         Span::styled(
             "Aggregate Spans",
@@ -169,6 +187,8 @@ pub fn render_spans(frame: &mut Frame, app: &mut AppState) {
         ),
         Span::raw("  search="),
         Span::styled(app.search_label(Screen::AggregateSpans), search_style),
+        Span::raw("  filter="),
+        Span::styled(app.filter_label(Screen::AggregateSpans), filter_style),
     ]))
     .block(Block::default().borders(Borders::ALL));
     frame.render_widget(header, layout[0]);
@@ -235,6 +255,8 @@ pub fn render_spans(frame: &mut Frame, app: &mut AppState) {
         Span::raw(" refresh  "),
         Span::styled("/", Style::default().fg(Color::Yellow)),
         Span::raw(" search  "),
+        Span::styled("f", Style::default().fg(Color::Yellow)),
+        Span::raw(" filter  "),
         Span::styled("q", Style::default().fg(Color::Yellow)),
         Span::raw(" quit"),
     ]))
