@@ -166,8 +166,58 @@ impl Store {
         })
     }
 
-    pub fn aggregate(&self, _query: AggregateQuery) -> AggregateSnapshot {
-        unimplemented!("store aggregate query will be implemented by store owner")
+    pub fn aggregate(&self, query: AggregateQuery) -> AggregateSnapshot {
+        let store = self.traces.lock();
+        let mut groups: HashMap<(String, Option<String>), Vec<u64>> = HashMap::new();
+
+        for span in store.values().flat_map(Trace::spans) {
+            if query
+                .span_name_search
+                .as_ref()
+                .is_some_and(|search| !span.name.contains(search))
+            {
+                continue;
+            }
+
+            let group = query
+                .group_by_attribute
+                .as_ref()
+                .and_then(|key| span.attributes.get(key).cloned());
+            let duration_nano = span.end_unix_nano.saturating_sub(span.start_unix_nano);
+
+            groups
+                .entry((span.name.clone(), group))
+                .or_default()
+                .push(duration_nano);
+        }
+
+        let mut rows = groups
+            .into_iter()
+            .map(|((span_name, group), mut durations)| {
+                durations.sort_unstable();
+                let calls = durations.len();
+                let total: u128 = durations.iter().map(|duration| u128::from(*duration)).sum();
+
+                AggregateRow {
+                    span_name,
+                    group,
+                    calls,
+                    mean_nano: (total / calls as u128).min(u128::from(u64::MAX)) as u64,
+                    p50_nano: percentile_nearest_rank(&durations, 50),
+                    p95_nano: percentile_nearest_rank(&durations, 95),
+                    max_nano: durations.last().copied().unwrap_or(0),
+                    error_count: 0,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        rows.sort_by(|left, right| {
+            left.span_name
+                .cmp(&right.span_name)
+                .then_with(|| left.group.cmp(&right.group))
+        });
+
+        AggregateSnapshot { rows }
     }
 
     /// Takes a vector of `NormalizedSpan` received from the server and inserts it into
@@ -220,6 +270,15 @@ fn span_rows(trace: &Trace) -> Vec<SpanRow> {
     }
 
     rows
+}
+
+fn percentile_nearest_rank(sorted_values: &[u64], percentile: usize) -> u64 {
+    if sorted_values.is_empty() {
+        return 0;
+    }
+
+    let index = (sorted_values.len() * percentile).div_ceil(100) - 1;
+    sorted_values[index.min(sorted_values.len() - 1)]
 }
 
 fn append_children(
