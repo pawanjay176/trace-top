@@ -7,6 +7,7 @@ use ratatui::{
 };
 use std::time::Duration;
 
+use super::footer;
 use crate::tui::app::{AppState, Screen};
 
 use jiff::{Timestamp, tz::TimeZone};
@@ -128,7 +129,10 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: ratatui::layout::Re
 }
 
 fn render_footer(frame: &mut Frame, app: &AppState, area: ratatui::layout::Rect) {
-    let footer = Paragraph::new(vec![
+    footer::render(
+        frame,
+        app,
+        area,
         Line::from(vec![
             Span::styled("j/k", Style::default().fg(Color::Yellow)),
             Span::raw(" move  "),
@@ -145,25 +149,7 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: ratatui::layout::Rect)
             Span::styled("q", Style::default().fg(Color::Yellow)),
             Span::raw(" quit"),
         ]),
-        Line::from(vec![
-            Span::styled("selected trace_id:", Style::default().fg(Color::DarkGray)),
-            Span::raw(" "),
-            Span::raw(app.selected_trace_id_text()),
-            Span::raw("  traces="),
-            Span::raw(app.trace_list.total_traces.to_string()),
-            Span::raw("  spans="),
-            Span::raw(app.trace_list.total_spans.to_string()),
-            Span::raw("  store="),
-            Span::raw(format_store_gb(app.trace_list.estimated_store_bytes)),
-        ]),
-    ])
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray)),
     );
-
-    frame.render_widget(footer, area);
 }
 
 fn short_trace_id(trace_id: &str) -> String {
@@ -187,8 +173,4 @@ fn format_start_time(unix_nano: u64) -> String {
 
 fn format_duration_ms(duration: Duration) -> String {
     format!("{:.2}ms", duration.as_nanos() as f64 / 1_000_000.0)
-}
-
-fn format_store_gb(bytes: usize) -> String {
-    format!("{:.3}GB", bytes as f64 / 1_000_000_000.0)
 }

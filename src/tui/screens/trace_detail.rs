@@ -7,6 +7,7 @@ use ratatui::{
 };
 use std::time::Duration;
 
+use super::footer;
 use crate::tui::app::{AppState, Screen};
 
 pub fn render(frame: &mut Frame, app: &mut AppState) {
@@ -16,7 +17,7 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
         .constraints([
             Constraint::Length(3),
             Constraint::Min(8),
-            Constraint::Length(4),
+            Constraint::Length(5),
         ])
         .split(area);
 
@@ -53,24 +54,27 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
 
     render_spans(frame, app, layout[1]);
 
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled("j/k", Style::default().fg(Color::Yellow)),
-        Span::raw(" move span  "),
-        Span::styled("b/Esc", Style::default().fg(Color::Yellow)),
-        Span::raw(" back  "),
-        Span::styled("a", Style::default().fg(Color::Yellow)),
-        Span::raw(" aggregates  "),
-        Span::styled("r", Style::default().fg(Color::Yellow)),
-        Span::raw(" refresh  "),
-        Span::styled("/", Style::default().fg(Color::Yellow)),
-        Span::raw(" search  "),
-        Span::styled("f", Style::default().fg(Color::Yellow)),
-        Span::raw(" filter  "),
-        Span::styled("q", Style::default().fg(Color::Yellow)),
-        Span::raw(" quit"),
-    ]))
-    .block(Block::default().borders(Borders::ALL));
-    frame.render_widget(footer, layout[2]);
+    footer::render(
+        frame,
+        app,
+        layout[2],
+        Line::from(vec![
+            Span::styled("j/k", Style::default().fg(Color::Yellow)),
+            Span::raw(" move span  "),
+            Span::styled("b/Esc", Style::default().fg(Color::Yellow)),
+            Span::raw(" back  "),
+            Span::styled("a", Style::default().fg(Color::Yellow)),
+            Span::raw(" aggregates  "),
+            Span::styled("r", Style::default().fg(Color::Yellow)),
+            Span::raw(" refresh  "),
+            Span::styled("/", Style::default().fg(Color::Yellow)),
+            Span::raw(" search  "),
+            Span::styled("f", Style::default().fg(Color::Yellow)),
+            Span::raw(" filter  "),
+            Span::styled("q", Style::default().fg(Color::Yellow)),
+            Span::raw(" quit"),
+        ]),
+    );
 }
 
 fn render_spans(frame: &mut Frame, app: &mut AppState, area: ratatui::layout::Rect) {

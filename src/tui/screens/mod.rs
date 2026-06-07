@@ -1,4 +1,5 @@
 mod aggregates;
+mod footer;
 mod trace_detail;
 mod trace_list;
 

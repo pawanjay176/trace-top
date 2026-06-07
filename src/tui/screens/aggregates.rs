@@ -6,6 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState},
 };
 
+use super::footer;
 use crate::tui::app::{AppState, Screen};
 
 use jiff::{Timestamp, tz::TimeZone};
@@ -17,7 +18,7 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
         .constraints([
             Constraint::Length(3),
             Constraint::Min(8),
-            Constraint::Length(4),
+            Constraint::Length(5),
         ])
         .split(area);
 
@@ -118,24 +119,27 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
     }
     frame.render_stateful_widget(table, layout[1], &mut state);
 
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled("j/k", Style::default().fg(Color::Yellow)),
-        Span::raw(" move  "),
-        Span::styled("Enter", Style::default().fg(Color::Yellow)),
-        Span::raw(" spans  "),
-        Span::styled("b/Esc", Style::default().fg(Color::Yellow)),
-        Span::raw(" back  "),
-        Span::styled("r", Style::default().fg(Color::Yellow)),
-        Span::raw(" refresh  "),
-        Span::styled("/", Style::default().fg(Color::Yellow)),
-        Span::raw(" search  "),
-        Span::styled("f", Style::default().fg(Color::Yellow)),
-        Span::raw(" filter  "),
-        Span::styled("q", Style::default().fg(Color::Yellow)),
-        Span::raw(" quit"),
-    ]))
-    .block(Block::default().borders(Borders::ALL));
-    frame.render_widget(footer, layout[2]);
+    footer::render(
+        frame,
+        app,
+        layout[2],
+        Line::from(vec![
+            Span::styled("j/k", Style::default().fg(Color::Yellow)),
+            Span::raw(" move  "),
+            Span::styled("Enter", Style::default().fg(Color::Yellow)),
+            Span::raw(" spans  "),
+            Span::styled("b/Esc", Style::default().fg(Color::Yellow)),
+            Span::raw(" back  "),
+            Span::styled("r", Style::default().fg(Color::Yellow)),
+            Span::raw(" refresh  "),
+            Span::styled("/", Style::default().fg(Color::Yellow)),
+            Span::raw(" search  "),
+            Span::styled("f", Style::default().fg(Color::Yellow)),
+            Span::raw(" filter  "),
+            Span::styled("q", Style::default().fg(Color::Yellow)),
+            Span::raw(" quit"),
+        ]),
+    );
 }
 
 pub fn render_spans(frame: &mut Frame, app: &mut AppState) {
@@ -145,7 +149,7 @@ pub fn render_spans(frame: &mut Frame, app: &mut AppState) {
         .constraints([
             Constraint::Length(3),
             Constraint::Min(8),
-            Constraint::Length(4),
+            Constraint::Length(5),
         ])
         .split(area);
 
@@ -244,24 +248,27 @@ pub fn render_spans(frame: &mut Frame, app: &mut AppState) {
     }
     frame.render_stateful_widget(table, layout[1], &mut state);
 
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled("j/k", Style::default().fg(Color::Yellow)),
-        Span::raw(" move  "),
-        Span::styled("Enter", Style::default().fg(Color::Yellow)),
-        Span::raw(" open trace  "),
-        Span::styled("b/Esc", Style::default().fg(Color::Yellow)),
-        Span::raw(" aggregates  "),
-        Span::styled("r", Style::default().fg(Color::Yellow)),
-        Span::raw(" refresh  "),
-        Span::styled("/", Style::default().fg(Color::Yellow)),
-        Span::raw(" search  "),
-        Span::styled("f", Style::default().fg(Color::Yellow)),
-        Span::raw(" filter  "),
-        Span::styled("q", Style::default().fg(Color::Yellow)),
-        Span::raw(" quit"),
-    ]))
-    .block(Block::default().borders(Borders::ALL));
-    frame.render_widget(footer, layout[2]);
+    footer::render(
+        frame,
+        app,
+        layout[2],
+        Line::from(vec![
+            Span::styled("j/k", Style::default().fg(Color::Yellow)),
+            Span::raw(" move  "),
+            Span::styled("Enter", Style::default().fg(Color::Yellow)),
+            Span::raw(" open trace  "),
+            Span::styled("b/Esc", Style::default().fg(Color::Yellow)),
+            Span::raw(" aggregates  "),
+            Span::styled("r", Style::default().fg(Color::Yellow)),
+            Span::raw(" refresh  "),
+            Span::styled("/", Style::default().fg(Color::Yellow)),
+            Span::raw(" search  "),
+            Span::styled("f", Style::default().fg(Color::Yellow)),
+            Span::raw(" filter  "),
+            Span::styled("q", Style::default().fg(Color::Yellow)),
+            Span::raw(" quit"),
+        ]),
+    );
 }
 
 fn format_duration(duration_nano: u64) -> String {
