@@ -7,6 +7,7 @@ use axum::{
     routing::get,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::net::TcpListener;
 
 use crate::core::{
@@ -88,7 +89,7 @@ struct SpanResponse {
     name: String,
     start_time_unix_nano: u64,
     duration_nano: u64,
-    attributes: HashMap<String, String>,
+    attributes: HashMap<String, Value>,
     children: Vec<String>,
 }
 

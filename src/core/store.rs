@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::core::types::{NormalizedSpan, SpanId, Trace, TraceId};
+use serde_json::Value;
 
 const ESTIMATED_NORMALIZED_SPAN_BYTES: usize = std::mem::size_of::<NormalizedSpan>()
     + 32 // trace_id/span_id/parent string heap allowance
@@ -205,7 +206,7 @@ impl Store {
             let group = query
                 .group_by_attribute
                 .as_ref()
-                .and_then(|key| span.attributes.get(key).cloned());
+                .and_then(|key| span.attributes.get(key).map(attribute_value_text));
             let duration_nano = span.end_unix_nano.saturating_sub(span.start_unix_nano);
 
             groups
@@ -250,10 +251,9 @@ impl Store {
             .flat_map(Trace::spans)
             .filter(|span| span.name == query.span_name)
             .filter(|span| {
-                query
-                    .group_by_attribute
-                    .as_ref()
-                    .is_none_or(|key| span.attributes.get(key).cloned() == query.group)
+                query.group_by_attribute.as_ref().is_none_or(|key| {
+                    span.attributes.get(key).map(attribute_value_text) == query.group
+                })
             })
             .filter(|span| {
                 query.search.as_ref().is_none_or(|search| {
@@ -393,8 +393,15 @@ fn span_attributes(span: &NormalizedSpan) -> Vec<(String, String)> {
     let mut attributes = span
         .attributes
         .iter()
-        .map(|(key, value)| (key.clone(), value.clone()))
+        .map(|(key, value)| (key.clone(), attribute_value_text(value)))
         .collect::<Vec<_>>();
     attributes.sort_by(|left, right| left.0.cmp(&right.0));
     attributes
+}
+
+fn attribute_value_text(value: &Value) -> String {
+    match value {
+        Value::String(value) => value.clone(),
+        _ => value.to_string(),
+    }
 }

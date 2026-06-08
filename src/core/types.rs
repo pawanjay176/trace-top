@@ -1,6 +1,10 @@
 use std::{collections::HashMap, time::Duration};
 
-use opentelemetry_proto::tonic::trace::v1::Span;
+use opentelemetry_proto::tonic::{
+    common::v1::{AnyValue, KeyValueList, any_value},
+    trace::v1::Span,
+};
+use serde_json::{Map, Number, Value};
 
 /// 16 byte trace id represented as a hex value.
 pub type TraceId = String;
@@ -20,8 +24,7 @@ pub struct NormalizedSpan {
     pub start_unix_nano: u64,
     /// Absolute wall-clock end timestamp from OTLP, in Unix epoch nanoseconds.
     pub end_unix_nano: u64,
-    /// TODO: store useful attributes here later.
-    pub attributes: HashMap<String, String>,
+    pub attributes: HashMap<String, Value>,
 }
 
 impl From<Span> for NormalizedSpan {
@@ -29,12 +32,9 @@ impl From<Span> for NormalizedSpan {
         let attributes = span
             .attributes
             .into_iter()
-            .filter_map(|kv| {
-                if let Some(value) = kv.value.and_then(|v| v.value) {
-                    Some((kv.key, format!("{:?}", value)))
-                } else {
-                    None
-                }
+            .map(|kv| {
+                let value = kv.value.map_or(Value::Null, any_value_to_json);
+                (kv.key, value)
             })
             .collect();
         Self {
@@ -52,6 +52,34 @@ impl From<Span> for NormalizedSpan {
             attributes,
         }
     }
+}
+
+fn any_value_to_json(value: AnyValue) -> Value {
+    match value.value {
+        Some(any_value::Value::StringValue(value)) => Value::String(value),
+        Some(any_value::Value::BoolValue(value)) => Value::Bool(value),
+        Some(any_value::Value::IntValue(value)) => Value::Number(value.into()),
+        Some(any_value::Value::DoubleValue(value)) => Number::from_f64(value)
+            .map(Value::Number)
+            .unwrap_or_else(|| Value::String(value.to_string())),
+        Some(any_value::Value::ArrayValue(value)) => {
+            Value::Array(value.values.into_iter().map(any_value_to_json).collect())
+        }
+        Some(any_value::Value::KvlistValue(value)) => Value::Object(key_value_list_to_json(value)),
+        Some(any_value::Value::BytesValue(value)) => Value::String(hex::encode(value)),
+        None => Value::Null,
+    }
+}
+
+fn key_value_list_to_json(value: KeyValueList) -> Map<String, Value> {
+    value
+        .values
+        .into_iter()
+        .map(|kv| {
+            let value = kv.value.map_or(Value::Null, any_value_to_json);
+            (kv.key, value)
+        })
+        .collect()
 }
 
 /// Represents a trace with all of the spans it created.
