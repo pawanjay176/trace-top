@@ -124,6 +124,16 @@ impl Store {
         }
     }
 
+    pub fn read_traces<R>(&self, read: impl FnOnce(&HashMap<TraceId, Trace>) -> R) -> R {
+        let store = self.traces.lock();
+        read(&store)
+    }
+
+    pub fn read_trace<R>(&self, trace_id: &TraceId, read: impl FnOnce(&Trace) -> R) -> Option<R> {
+        let store = self.traces.lock();
+        store.get(trace_id).map(read)
+    }
+
     /// Returns a list of most recent traces based on the query.
     pub fn recent_traces(&self, query: TraceListQuery) -> TraceListSnapshot {
         let store = self.traces.lock();
@@ -287,7 +297,7 @@ impl Store {
                 let _ = trace.insert_span(span);
             } else {
                 let trace = Trace::new_from_normalized_span(span);
-                store.insert(trace_id, trace.clone());
+                store.insert(trace_id, trace);
             }
         }
     }

@@ -132,13 +132,15 @@ impl Trace {
     /// Note: this could be incomplete as a trace might not be complete as we are receiving
     /// more spans.
     pub fn end_time(&self) -> Duration {
-        Duration::from_nanos(
-            self.spans_by_id
-                .values()
-                .map(|span| span.end_unix_nano)
-                .max()
-                .unwrap_or(0),
-        )
+        Duration::from_nanos(self.end_unix_nano())
+    }
+
+    pub fn end_unix_nano(&self) -> u64 {
+        self.spans_by_id
+            .values()
+            .map(|span| span.end_unix_nano)
+            .max()
+            .unwrap_or(0)
     }
 
     /// Returns the time difference between the first registered span under this
