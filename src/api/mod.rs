@@ -26,6 +26,8 @@ struct ApiState {
 struct SpanQuery {
     name: Option<String>,
     limit: Option<usize>,
+    sort: Option<String>,
+    order: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,9 +55,8 @@ struct SpanSummaryResponse {
 
 #[derive(Debug, Serialize)]
 struct SpanReportResponse {
-    span_name: String,
     stats: SpanStatsResponse,
-    slowest: Vec<SpanResponse>,
+    spans: Vec<SpanResponse>,
 }
 
 #[derive(Debug, Serialize)]
@@ -91,6 +92,20 @@ struct SpanResponse {
     children: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum SpanSort {
+    Duration,
+    StartTime,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum SortOrder {
+    Asc,
+    Desc,
+}
+
 pub async fn serve(addr: &str, store: Arc<Store>) -> Result<(), Box<dyn Error>> {
     let addr: SocketAddr = addr.parse()?;
     let state = ApiState { store };
@@ -121,10 +136,12 @@ async fn span_report(
         .limit
         .unwrap_or(DEFAULT_SLOWEST_LIMIT)
         .min(MAX_SLOWEST_LIMIT);
+    let sort = parse_span_sort(query.sort.as_deref())?;
+    let order = parse_sort_order(query.order.as_deref())?;
 
     let response = state
         .store
-        .read_traces(|traces| span_report_response(traces, span_name, limit));
+        .read_traces(|traces| span_report_response(traces, span_name, limit, sort, order));
 
     Ok(Json(SpansResponse::Report(response)))
 }
@@ -162,28 +179,29 @@ fn span_report_response(
     traces: &HashMap<TraceId, Trace>,
     span_name: String,
     limit: usize,
+    sort: SpanSort,
+    order: SortOrder,
 ) -> SpanReportResponse {
     let mut durations = Vec::new();
-    let mut slowest = Vec::new();
+    let mut spans = Vec::new();
 
     for trace in traces.values() {
         let children = children_by_parent(trace);
         for span in trace.spans().filter(|span| span.name == span_name) {
             durations.push(span_duration_nano(span));
-            slowest.push(span_response(
+            spans.push(span_response(
                 span,
                 children.get(&span.span_id).cloned().unwrap_or_default(),
             ));
         }
     }
 
-    slowest.sort_by_key(|span| std::cmp::Reverse(span.duration_nano));
-    slowest.truncate(limit);
+    sort_spans(&mut spans, sort, order);
+    spans.truncate(limit);
 
     SpanReportResponse {
-        span_name,
         stats: span_stats(durations),
-        slowest,
+        spans,
     }
 }
 
@@ -281,6 +299,39 @@ fn percentile_nearest_rank(sorted_values: &[u64], percentile: usize) -> u64 {
 
 fn span_duration_nano(span: &NormalizedSpan) -> u64 {
     span.end_unix_nano.saturating_sub(span.start_unix_nano)
+}
+
+fn sort_spans(spans: &mut [SpanResponse], sort: SpanSort, order: SortOrder) {
+    spans.sort_by_key(|span| match sort {
+        SpanSort::Duration => span.duration_nano,
+        SpanSort::StartTime => span.start_time_unix_nano,
+    });
+
+    if matches!(order, SortOrder::Desc) {
+        spans.reverse();
+    }
+}
+
+fn parse_span_sort(sort: Option<&str>) -> Result<SpanSort, (StatusCode, Json<ApiError>)> {
+    match sort.unwrap_or("duration") {
+        "duration" => Ok(SpanSort::Duration),
+        "start_time" => Ok(SpanSort::StartTime),
+        _ => Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "sort must be one of: duration, start_time",
+        )),
+    }
+}
+
+fn parse_sort_order(order: Option<&str>) -> Result<SortOrder, (StatusCode, Json<ApiError>)> {
+    match order.unwrap_or("desc") {
+        "asc" => Ok(SortOrder::Asc),
+        "desc" => Ok(SortOrder::Desc),
+        _ => Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "order must be one of: asc, desc",
+        )),
+    }
 }
 
 fn api_error(status: StatusCode, error: &str) -> (StatusCode, Json<ApiError>) {
